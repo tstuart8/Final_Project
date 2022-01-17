@@ -1,0 +1,187 @@
+library(dplyr)
+library(readxl)
+library(rcompanion)
+library(exactRankTests)
+library(MuMIn)
+
+d <- read_xlsx(file.choose(), na = "NV")
+colnames(d) <- tolower(colnames(d))
+
+# subset columns
+# didn't see gs7total_2 even though it's in data dictionary
+cols <- c("age","gender","race","raceother","ethnicity","curr_cancer_diag",
+          "curr_chemo", "curr_rad","curr_surg", "curr_other",
+          "gp7total", "gp7total_2", "gs7total", 
+          "ge6total", "ge6total_2", "gf7total", "gf7total_2",
+          "fact-g total", "fact_g total_2", "gfat_total",
+          "gfat_total_2", "gripst_dom", "gripst_dom_2",
+          "gripst_ndom", "gripst_ndom_2", "smwt_dist", "smwt_dist_2",
+          "wr_sl2", "wr_sl2_2", "wr_sl4", "wr_sl4_2", "wr_sl7", 
+          "wr_sl7_2", "sleephabits_total", "sleephabits_total_2")
+
+# remove last two rows (they had cell comments)
+d <- d[1:(nrow(d)-2),cols]
+d <- d[!is.na(d$sleephabits_total) & !is.na(d$sleephabits_total_2),]
+
+# convert to numeric - was cast as string on import
+d$gripst_dom <- as.numeric(d$gripst_dom)
+
+# Convert demographic variables to factors
+d$race <- factor(d$race, levels = 1:7, labels = c("American Indian/Alaska Native", "Asian", 
+                                                  "Black or African American",
+                                                  "Native Hawaiian or Other Pacific Islander",
+                                                  "White", "Mixed Race", "Other Race"))
+
+d$ethnicity <- factor(d$ethnicity, levels = 1:2, labels = c("Hispanic or Latino", 
+                                                            "Not Hispanic or Latino"))
+
+d$curr_cancer_diag <- factor(d$curr_cancer_diag, levels = 1:11,
+                             labels = c("Breast", "Prostate", "Colorectal", "Lung",
+                                        "Ovarian", "Blood/Heme", "Head and Neck",
+                                        "Brain", "Esophageal", "Pancreatic", "Other"))
+
+d$gender <- factor(d$gender, levels = 1:2, labels = c("Female", "Male"))
+d$curr_chemo <- factor(d$curr_chemo, levels = 0:1, labels = c("No", "Yes"))
+d$curr_rad <- factor(d$curr_rad, levels = 0:1, labels = c("No", "Yes"))
+d$curr_surg <- factor(d$curr_surg, levels = 0:1, labels = c("No", "Yes"))
+d$curr_other <- factor(d$curr_other, levels = 0:1, labels = c("No", "Yes"))
+
+d$curr_cancer_diag2 <- as.factor(ifelse(d$curr_cancer_diag == "Breast", "Breast", "Other"))
+
+
+hist(d$age)
+table(d$gender)
+table(d$curr_cancer_diag2)
+table(d$race)
+table(d$ethnicity)
+
+plot(d$sleephabits_total, d$sleephabits_total_2)
+plot(d$smwt_dist, d$smwt_dist_2)
+plot(d$gripst_dom, d$gripst_dom_2)
+plot(d$gripst_ndom, d$gripst_ndom_2)
+
+hist(d$gripst_dom_2 - d$gripst_dom)
+hist(d$gripst_ndom_2 - d$gripst_ndom)
+hist(d$smwt_dist_2-d$smwt_dist)
+
+# Checking whether sleep quality improved
+d$slp_qual_pre <- ifelse(d$wr_sl7 %in% c(4, 5), 1, 0)
+d$slp_qual_post <- ifelse(d$wr_sl7_2 %in% c(4, 5), 1, 0)
+t.test(d$slp_qual_pre, d$slp_qual_post, paired=T)
+wilcox.exact(d$slp_qual_pre, d$slp_qual_post, paired=T)
+
+# Checking whether qol/fatigue quality improved
+t.test(d$`fact_g total_2`, d$`fact-g total`, paired=T)
+wilcox.exact(d$`fact_g total_2`, d$`fact-g total`, paired=T, alternative = 'greater')
+
+t.test(d$gfat_total_2, d$gfat_total, paired=T)
+wilcox.exact(d$gfat_total_2, d$gfat_total, paired=T)
+
+
+# Checking whether grip strength/walk test improved
+t.test(d$gripst_dom_2, d$gripst_dom, paired=T)
+wilcox.exact(d$gripst_dom_2, d$gripst_dom, paired=T)
+
+t.test(d$smwt_dist_2 , d$smwt_dist, paired=T)
+t.test(d$smwt_dist , d$smwt_dist_2, paired=T)
+wilcox.exact(d$smwt_dist_2, d$smwt_dist, paired=T)
+
+
+############################################
+################ Aim 1
+##########################################
+
+
+## McNemar's Test
+rested_tab = table(d$wr_sl2, d$wr_sl2_2)
+mcnemar.test(rested_tab)
+
+
+
+
+## Wilcox paired sign test
+wilcox.exact(d$wr_sl2, d$wr_sl2_2, paired=T, alternative = 'greater')
+wilcox.test(d$wr_sl2, d$wr_sl2_2, paired=T, alternative = 'greater', exact=F)
+
+
+## Wilcox paired sign test
+wilcox.exact(d$wr_sl7, d$wr_sl7_2, paired=T, alternative='greater', conf.int = T)
+t.test(d$wr_sl7, d$wr_sl7_2, paired=T)
+
+wilcox.exact(d$wr_sl4, d$wr_sl4_2, paired=T, alternative='greater')
+
+############################################
+################ Aim 2
+##########################################
+
+##Calculate Variables
+d$qol_change = d$`fact_g total_2` - d$`fact-g total`
+d$fatigue_change = d$gfat_total_2 - d$gfat_total
+d$gripst_change = d$gripst_dom_2 - d$gripst_dom
+d$smwt_change = d$smwt_dist_2 - d$smwt_dist
+d$imp_slp_qual = ifelse(d$wr_sl7_2 > d$wr_sl7, "1", "0")
+d$imp_slp_qual = as.factor(d$imp_slp_qual)
+d$sleephabits_diff = d$sleephabits_total_2 - d$sleephabits_total
+
+
+##Visualize
+plot(d$gripst_change, d$qol_change, col = as.factor(d$imp_slp_qual), pch=19, cex = 1.2, main = "Quality of Life Change vs. Grip Strength Change", xlab="Grip Strength Change", ylab = "Quality of Life Change", sub = "Figure 1")
+legend('topleft', pch = 19, legend = c("Sleep Quality: Improved", "Sleep Quality: Not Improved"), col = c(2,1))
+plot(d$smwt_change, d$qol_change, col = as.factor(d$imp_slp_qual), pch=19, cex = 1.2, main = "Quality of Life Change vs. Walking Distance Change", xlab="Walking Distance Change", ylab = "Quality of Life Change", sub = "Figure 2")
+legend('topleft', pch = 19, legend = c("Sleep Quality: Improved", "Sleep Quality: Not Improved"), col = c(2,1))
+boxplot(d$qol_change ~ d$imp_slp_qual)
+
+
+
+######################
+## linear Regression
+#####################
+
+qqnorm(d$qol_change, main="Normal Q-Q Plot: Quality of Life Change", sub = "Figure 3")
+qqnorm(d$fatigue_change,main="Normal Q-Q Plot: Fatigue Change", sub = "Figure 4")
+
+## QOL on Grip and sleep
+mod = lm(qol_change ~ gripst_change * imp_slp_qual, data = d, na.action = na.fail)
+summary(mod)
+
+mod2 = lm(qol_change ~ gripst_change * imp_slp_qual
+          + age + gender + race + curr_cancer_diag2 + sleephabits_diff, data = d, na.action = na.fail)
+
+summary(step(mod, mod2, direction = 'forward'))
+summary(step(mod, mod2, direction = 'backward'))
+
+
+## QOL on walking and sleep
+mod = lm(qol_change ~ smwt_change * imp_slp_qual, data = d)
+summary(mod)
+
+mod2 = lm(qol_change ~ smwt_change * imp_slp_qual 
+          + age + gender + race + curr_cancer_diag2 + sleephabits_diff, data = d)
+
+step(mod, mod2, direction = 'forward')
+step(mod, mod2, direction = 'backward')
+
+
+## fatigue on Grip and sleep
+mod = lm(fatigue_change ~ gripst_change * imp_slp_qual, data = d)
+summary(mod)
+
+
+mod2 = lm(fatigue_change ~ gripst_change * imp_slp_qual 
+          + age + gender + race + curr_cancer_diag2 + sleephabits_diff, data = d)
+summary(mod2)
+
+step(mod, mod2, direction = 'forward')
+step(mod2, mod, direction = 'backward')
+
+## fatigue on walking and sleep
+mod = lm(fatigue_change ~ smwt_change * imp_slp_qual, data = d)
+summary(mod)
+
+
+mod2 = lm(fatigue_change ~ gripst_change * imp_slp_qual 
+          + age + gender + race + curr_cancer_diag2 + sleephabits_diff, data = d)
+summary(mod2)
+
+step(mod, mod2, direction = 'forward')
+step(mod2, mod, direction = 'backward')
